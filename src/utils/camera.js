@@ -29,7 +29,7 @@
         width: 640,
         height: 480,
         frameRate: {
-          ideal: 60,
+          ideal: 25,
         }
       }
     });
@@ -78,7 +78,7 @@ export class Camera {
           'Browser API navigator.mediaDevices.getUserMedia not available');
     }
 
-    const {targetFPS, sizeOption} = cameraParam;
+    const {sizeOption} = cameraParam;
     const $size = VIDEO_SIZE[sizeOption];
     const videoConfig = {
       'audio': false,
@@ -101,7 +101,7 @@ export class Camera {
 
     await new Promise((resolve) => {
       camera.video.onloadedmetadata = () => {
-        resolve(video);
+        resolve(camera.video);
       };
     });
 
@@ -126,21 +126,11 @@ export class Camera {
   }
 
   drawCtx() {
-    console.log('this.video.videoWidth')
-    console.log(this.video.videoWidth)
-    console.log('this.video.videoHeight')
-    console.log(this.video.videoHeight)
     this.ctx.drawImage(
         this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
   }
 
   drawResults(faces, boundingBox, keypoints) {
-    console.log('boundingBox')
-    console.log(boundingBox)
-    console.log('keypoints')
-    console.log(keypoints)
-    console.log('this.ctx')
-    console.log(this.ctx)
     drawResults(this.ctx, faces, boundingBox, keypoints);
   }
 }

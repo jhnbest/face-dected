@@ -44,8 +44,6 @@ export async function createDetector() {
   switch (STATE.model) {
     case faceDetection.SupportedModels.MediaPipeFaceDetector:
       const runtime = STATE.backend.split('-')[0];
-      console.log('STATE.model')
-      console.log(STATE.model)
       if (runtime === 'mediapipe') {
         return faceDetection.createDetector(STATE.model, {
           runtime,

@@ -32,13 +32,22 @@
     <h2 class="panel-title" style="margin-top: 40px;">
       <i class="fas fa-images"></i> 抓拍结果
     </h2>
-    <div v-if="captures.length > 0" class="capture-grid">
+    <!-- <div v-if="captures.length > 0" class="capture-grid">
       <div v-for="capture in displayCaptures" :key="capture.id" class="capture-card">
         <img :src="capture.img" alt="抓拍的人脸" class="capture-img">
         <div class="capture-meta">
           <span>{{ capture.timestamp }}</span>
           <span>{{ capture.distance }}</span>
         </div>
+      </div>
+    </div> -->
+    <div v-if="clips.length > 0" class="capture-grid">
+      <div v-for="captureVideo in clips" :key="captureVideo.id" class="capture-card">
+        <video :src="captureVideo.src" alt="抓拍的人脸" class="capture-img" controls></video>
+        <!-- <div class="capture-meta">
+          <span>{{ capture.timestamp }}</span>
+          <span>{{ capture.distance }}</span>
+        </div> -->
       </div>
     </div>
     <div v-else class="no-captures">
@@ -51,10 +60,16 @@
 export default {
   props: {
     captures: Array,
+    clips: Array,
     faceCount: Number,
     distanceValue: String,
     distancePercentage: Number,
     fps: Number
+  },
+  data() {
+    return {
+      videoURL: null
+    }
   },
   computed: {
     displayCaptures() {
@@ -72,5 +87,18 @@ export default {
   padding: 20px; 
   text-align: center;
   color: #aaa;
+}
+/* .capture-img {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+} */
+
+/* 网格布局优化 */
+.capture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
 }
 </style>

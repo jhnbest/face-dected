@@ -53,8 +53,6 @@ export async function detectFaces(model) {
   }
   
   try {
-    console.log('videoElement')
-    console.log(videoElement)
     // 使用模型检测人脸
     const predictions = await model.estimateFaces(
       videoElement, 

@@ -58,8 +58,7 @@
   }
 }
 
-import {VIDEO_SIZE} from './shared/params';
-import {drawResults, isMobile} from './shared/util';
+import {drawResults} from './shared/util';
 
 export class Camera {
   constructor() {
@@ -72,29 +71,27 @@ export class Camera {
    * Initiate a Camera instance and wait for the camera stream to be ready.
    * @param cameraParam From app `STATE.camera`.
    */
-  static async setupCamera(cameraParam) {
+  static async setupCamera(config = {}) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error(
           'Browser API navigator.mediaDevices.getUserMedia not available');
     }
 
-    const {sizeOption} = cameraParam;
-    const $size = VIDEO_SIZE[sizeOption];
     const videoConfig = {
-      'audio': false,
-      'video': {
-        facingMode: 'user',
-        // Only setting the video to a specified size for large screen, on
-        // mobile devices accept the default size.
-        width: 640,
-        height: 480,
-        frameRate: {
-          ideal: 60,
-        },
-      },
+      // 如果提供了deviceId，则使用指定摄像头
+      ...(config.deviceId ? { deviceId: { exact: config.deviceId } } : {}),
+      // facingMode: 'user',
+      // Only setting the video to a specified size for large screen, on
+      // mobile devices accept the default size.
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 25, max: 25 } // 保持25fps帧率
     };
 
-    const stream = await navigator.mediaDevices.getUserMedia(videoConfig);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: videoConfig
+    });
 
     const camera = new Camera();
     camera.video.srcObject = stream;
@@ -113,13 +110,15 @@ export class Camera {
     camera.video.width = videoWidth
     camera.video.height = videoHeight
 
-    camera.canvas.width = videoWidth;
+    camera.canvas.width = videoWidth
     camera.canvas.height = videoHeight
     const canvasContainer = document.querySelector('.canvas-wrapper')
     canvasContainer.style = `width: ${videoWidth}px; height: ${videoHeight}px`
 
+
     // Because the image from camera is mirrored, need to flip horizontally.
     camera.ctx.translate(camera.video.videoWidth, 0)
+    camera.ctx.rotate(90 * Math.PI / 180)
     camera.ctx.scale(-1, 1)
 
     return camera;

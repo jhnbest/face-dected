@@ -78,7 +78,7 @@ export default {
     captureCount() {
       return this.captures.length;
     }
-  }
+  },
 }
 </script>
 

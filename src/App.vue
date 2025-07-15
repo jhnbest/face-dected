@@ -15,6 +15,9 @@
         </option>
       </select>
     </div>
+    <button @click="rotateCanvas" class="btn btn-info" style="margin-left: 10px">
+      <i class="fas fa-redo"></i> 旋转摄像头画面
+    </button>
 
     <!-- 通知系统：用于显示操作结果提示 -->
     <transition name="notification">
@@ -31,6 +34,7 @@
     <div class="panel-container">
       <!-- 摄像头控制面板：显示摄像头状态和控制按钮 -->
       <CameraPanel
+        ref="cameraPanel"
         :camera-active="cameraActive"
         :model-loaded="modelLoaded"
         :is-auto-capture-enabled="isAutoCaptureEnabled"
@@ -404,6 +408,8 @@ export default {
 
         this.updateProcessingInfo('正在初始化摄像头...');
         STATE.camera.deviceId = this.selectedCameraId;
+        console.log('this.selectedCameraId')
+        console.log(this.selectedCameraId)
         this.camera = await Camera.setupCamera(STATE.camera);
 
         if (this.camera !== null) {
@@ -566,6 +572,14 @@ export default {
         this.showNotification('切换摄像头失败，请重试');
       } finally {
         this.cameraChanging = false;
+      }
+    },
+    rotateCanvas() {
+      // 调用子组件的rotateCanvas方法
+      if (this.$refs.cameraPanel) {
+        this.$refs.cameraPanel.rotateCanvas();
+      } else {
+        console.error('CameraPanel组件未找到');
       }
     },
     /**

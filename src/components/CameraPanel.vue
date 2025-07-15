@@ -46,6 +46,11 @@
 
 <script>
 export default {
+  data() {
+    return {
+      rotateDegrees: 0
+    }
+  },
   props: {
     cameraActive: Boolean,
     modelLoaded: Boolean,
@@ -77,6 +82,35 @@ export default {
       return `status-indicator ${
         this.cameraStatus.includes("已连接") ? "status-green" : "status-red"
       }`;
+    }
+  },
+  methods: {
+    rotateCanvas() {
+      this.rotateDegrees = (this.rotateDegrees + 90) % 360;
+      this.$nextTick(() => {
+        this.updateCanvasTransform();
+      });
+    },
+    updateCanvasTransform() {
+      const canvas = document.getElementById('output');
+      const ctx = canvas.getContext('2d');
+      ctx.resetTransform();
+      
+      // 根据旋转角度设置变换矩阵
+      switch(this.rotateDegrees) {
+        case 90:
+          ctx.translate(canvas.width, 0);
+          break;
+        case 180:
+          ctx.translate(canvas.width, canvas.height);
+          break;
+        case 270:
+          ctx.translate(0, canvas.height);
+          break;
+        default:
+          break;
+      }
+      ctx.rotate(this.rotateDegrees * Math.PI / 180);
     }
   }
 }

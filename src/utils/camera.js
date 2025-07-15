@@ -93,6 +93,9 @@ export class Camera {
       video: videoConfig
     });
 
+    console.log('stream')
+    console.log(stream)
+
     const camera = new Camera();
     camera.video.srcObject = stream;
 
@@ -118,7 +121,6 @@ export class Camera {
 
     // Because the image from camera is mirrored, need to flip horizontally.
     camera.ctx.translate(camera.video.videoWidth, 0)
-    camera.ctx.rotate(90 * Math.PI / 180)
     camera.ctx.scale(-1, 1)
 
     return camera;

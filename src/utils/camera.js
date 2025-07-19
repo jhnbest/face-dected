@@ -93,9 +93,6 @@ export class Camera {
       video: videoConfig
     });
 
-    console.log('stream')
-    console.log(stream)
-
     const camera = new Camera();
     camera.video.srcObject = stream;
 

@@ -90,11 +90,13 @@
 // 导入组件
 import CameraPanel from './components/CameraPanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
+import axios from 'axios'
 
 // 导入工具函数和类
 import { createDetector, detectFacesV2 } from './utils/detectionV2'
 import {STATE} from './utils/shared/params'
 import {Camera} from './utils/camera'
+import {http} from './utils/http'
 
 export default {
   components: {
@@ -148,6 +150,8 @@ export default {
       cameraChanging: false,         // 摄像头切换中标志
       consoleLogs: [],        // 存储控制台日志
       consoleExpanded: false, // 控制日志面板展开/折叠
+      tokenRefreshTimer: null,// token刷新定时器
+      retryCount: 0,          // 获取token失败重试次数
       maxLogCount: 50         // 最大日志数量
     }
   },
@@ -366,9 +370,7 @@ export default {
       }
     },
 
-    /**
-     * 手动抓拍人脸（未使用）
-     */
+    /**手动抓拍人脸（未使用）*/
     async captureFaceManual() {
       // 预留的手动抓拍功能
     },
@@ -408,8 +410,6 @@ export default {
 
         this.updateProcessingInfo('正在初始化摄像头...');
         STATE.camera.deviceId = this.selectedCameraId;
-        console.log('this.selectedCameraId')
-        console.log(this.selectedCameraId)
         this.camera = await Camera.setupCamera(STATE.camera);
 
         if (this.camera !== null) {
@@ -479,44 +479,6 @@ export default {
     },
 
     /**
-     * 将录制的视频转换为Base64格式
-     * 并添加到视频片段列表中
-     */
-    async convertToBase64() {
-      // 创建Blob对象
-      const blob = new Blob(this.recordedChunks, { type: 'video/mp4' });
-      if (blob.size === 0) return
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      console.log('this.recordedChunks')
-      console.log(this.recordedChunks)
-      console.log('blob')
-      console.log(blob)
-      console.log('reader')
-      console.log(reader)
-      // 转换完成回调
-      reader.onloadend = () => {
-        // 将新视频添加到列表开头
-        this.videoClips.unshift({
-          id: Date.now(),
-          src: reader.result,
-          playing: false
-        });
-        // 如果超过最大数量，移除最旧的视频
-        if (this.videoClips.length > this.maxClips) {
-          this.videoClips.pop();
-        }
-        this.isConvertBase64Finish = true
-        this.timestamp3 = Date.now()
-        console.log('转换2s耗时')
-        console.log(this.timestamp3 - this.timestamp2)
-        console.log('this.videoClips')
-        console.log(this.videoClips)
-        console.log("----------------------convertToBase64 done!----------------")
-      };
-    },
-
-    /**
      * 获取可用摄像头列表
      * @returns {boolean} 是否成功获取摄像头列表
      */
@@ -574,6 +536,89 @@ export default {
         this.cameraChanging = false;
       }
     },
+    async getToken() {
+      const params = new URLSearchParams();
+      params.append('grant_type', 'client_credentials');
+      params.append('client_id', this.$store.state.client_id);
+      params.append('client_secret', this.$store.state.client_secret);
+
+      try {
+        const axios_instance = axios.create()
+        const response = await axios_instance.post('/sso/oauth/token', params, {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+        
+        console.log('Token响应', response);
+        const accessToken = response.data.access_token;
+        const tokenType = response.data.token_type;
+        // 更新 Vuex 状态
+        await this.$store.commit('updateToken', accessToken);
+        await this.$store.commit('updateTokenType', tokenType);
+        console.log('this.$store')
+        console.log(this.$store)
+
+        console.log('Token获取成功:', accessToken);
+        return response
+      } catch (error) {
+        console.error('获取 token 失败', {
+          url: error.config?.url,
+          method: error.config?.method,
+          status: error.response?.status,
+          message: error.message
+        });
+        
+        // 加入重试逻辑（可选）
+        if (this.retryCount < 3) {
+          console.log(`30秒后重试 (${++this.retryCount}/3)`);
+          await new Promise(resolve => setTimeout(resolve, 30000));
+          return this.getToken();
+        }
+        
+        // 传播错误
+        throw new Error(`Token获取失败: ${error.message}`, { cause: error });
+      }
+    },
+
+    /**
+     * 将录制的视频转换为Base64格式
+     * 并添加到视频片段列表中
+     */
+    async convertToBase64() {
+      // 创建Blob对象
+      const blob = new Blob(this.recordedChunks, { type: 'video/mp4' });
+      if (blob.size === 0) return
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      console.log('this.recordedChunks')
+      console.log(this.recordedChunks)
+      console.log('blob')
+      console.log(blob)
+      console.log('reader')
+      console.log(reader)
+      // 转换完成回调
+      reader.onloadend = () => {
+        // 将新视频添加到列表开头
+        this.videoClips.unshift({
+          id: Date.now(),
+          src: reader.result,
+          playing: false
+        });
+        // 如果超过最大数量，移除最旧的视频
+        if (this.videoClips.length > this.maxClips) {
+          this.videoClips.pop();
+        }
+        this.isConvertBase64Finish = true
+        this.timestamp3 = Date.now()
+        console.log('转换2s耗时')
+        console.log(this.timestamp3 - this.timestamp2)
+        console.log('this.videoClips')
+        console.log(this.videoClips)
+        console.log("----------------------convertToBase64 done!----------------")
+      };
+    },
+
     rotateCanvas() {
       // 调用子组件的rotateCanvas方法
       if (this.$refs.cameraPanel) {
@@ -614,7 +659,19 @@ export default {
    * 组件挂载后初始化应用
    */
   async mounted() {
-    await this.initializeApp();
+    // 立即获取首次token
+    this.getToken().then(response => {
+      console.log('response')
+      console.log(response)
+      http('/video/certification/query/scene', {})
+    }).catch(error => {
+      console.log('error')
+      console.log(error)
+    });
+    // 每5小时刷新一次（早于12小时有效期）
+    this.tokenRefreshTimer = setInterval(() => {
+      this.getToken();
+    }, 5 * 60 * 60 * 1000);
 
     // 重写console.log方法以捕获日志
     const originalConsoleLog = console.log;
@@ -637,6 +694,8 @@ export default {
         this.addConsoleLog('日志格式化失败: ' + e.message);
       }
     };
+
+    await this.initializeApp();
   },
   /**
    * 组件销毁前清理资源
@@ -653,6 +712,10 @@ export default {
     if (this.statusInterval) {
       clearInterval(this.statusInterval);
     }
+    if (this.tokenRefreshTimer) {
+      // 组件销毁时清除定时器
+      clearInterval(this.tokenRefreshTimer);
+    }  
   }
 }
 </script>

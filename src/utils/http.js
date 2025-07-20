@@ -10,11 +10,23 @@ axios.interceptors.request.use(config => {
     store.state.accessToken,
     SECRET_KEY
   );
-  console.log('store.state.accessToken')
-  console.log(store.state.accessToken)
+
+  const authorization = 'Bearer ' + store.state.accessToken;
+
+  // 1. 解析URL并创建查询参数对象
+  const url = new URL(config.url, window.location.origin);
+
+  // 2. 添加四个参数到URL查询字符串
+  url.searchParams.append('Authorization', authorization);
+  url.searchParams.append('timestamp', timestamp);
+  url.searchParams.append('nonce', nonce);
+  url.searchParams.append('sign', sign);
+
+  // 3. 更新config.url为新的带参数URL
+  config.url = url.href;
 
   config.headers['Content-Type'] = 'application/json'
-  config.headers['token'] = store.state.tokenType + ' ' + store.state.accessToken
+  config.headers['Authorization'] = 'Bearer' + ' ' + store.state.accessToken
   config.headers['timestamp'] = timestamp
   config.headers['nonce'] = nonce
   config.headers['sign'] = sign

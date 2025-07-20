@@ -96,7 +96,8 @@ import axios from 'axios'
 import { createDetector, detectFacesV2 } from './utils/detectionV2'
 import {STATE} from './utils/shared/params'
 import {Camera} from './utils/camera'
-import {http} from './utils/http'
+import {initializeVideoLiveness, handleVideoLivenessCertification} from './utils/livenessDetection'
+
 
 export default {
   components: {
@@ -236,7 +237,7 @@ export default {
 
           // 如果人脸距离足够近（>80%），且距离上次抓拍超过2秒，则开始录制视频
           if (distancePercentage > 80) {
-            if (!this.lastCaptureTime || timestamp - this.lastCaptureTime >= 2000) {
+            if (!this.lastCaptureTime || timestamp - this.lastCaptureTime >= 5000) {
               this.lastCaptureTime = timestamp
               // this.captureFace(face);
               this.startRecording()
@@ -442,7 +443,7 @@ export default {
 
     /**
      * 开始录制视频
-     * 当检测到人脸时触发，录制2秒视频
+     * 当检测到人脸时触发，录制3秒视频
      */
     startRecording() {
       // 如果Base64转换未完成，则不开始新的录制
@@ -471,10 +472,10 @@ export default {
       // 开始录制
       this.mediaRecorder.start();
 
-      // 2秒后停止录制
+      // 3秒后停止录制
       setTimeout(() => {
         this.mediaRecorder.stop();
-      }, 2000);
+      }, 3000);
 
     },
 
@@ -536,6 +537,13 @@ export default {
         this.cameraChanging = false;
       }
     },
+
+    /**
+     * 获取OAuth访问令牌 (client_credentials模式)
+     * 用于通过客户端凭证获取访问令牌，支持自动重试机制（最多3次）
+     * @returns {Promise<Object>} 包含访问令牌的响应对象
+     * @throws {Error} 当重试3次后仍失败时抛出错误
+     */
     async getToken() {
       const params = new URLSearchParams();
       params.append('grant_type', 'client_credentials');
@@ -549,17 +557,13 @@ export default {
             'Content-Type': 'application/x-www-form-urlencoded'
           }
         });
-        
-        console.log('Token响应', response);
+
         const accessToken = response.data.access_token;
         const tokenType = response.data.token_type;
         // 更新 Vuex 状态
         await this.$store.commit('updateToken', accessToken);
         await this.$store.commit('updateTokenType', tokenType);
-        console.log('this.$store')
-        console.log(this.$store)
 
-        console.log('Token获取成功:', accessToken);
         return response
       } catch (error) {
         console.error('获取 token 失败', {
@@ -568,14 +572,14 @@ export default {
           status: error.response?.status,
           message: error.message
         });
-        
+
         // 加入重试逻辑（可选）
         if (this.retryCount < 3) {
           console.log(`30秒后重试 (${++this.retryCount}/3)`);
           await new Promise(resolve => setTimeout(resolve, 30000));
           return this.getToken();
         }
-        
+
         // 传播错误
         throw new Error(`Token获取失败: ${error.message}`, { cause: error });
       }
@@ -591,14 +595,21 @@ export default {
       if (blob.size === 0) return
       const reader = new FileReader();
       reader.readAsDataURL(blob);
-      console.log('this.recordedChunks')
-      console.log(this.recordedChunks)
-      console.log('blob')
-      console.log(blob)
-      console.log('reader')
-      console.log(reader)
       // 转换完成回调
       reader.onloadend = () => {
+        let params = {
+          sessionId: this.$store.state.sessionId,
+          tradingFlowNO: '1',
+          channel: '1',
+          tradingCode: '1',
+          video: reader.result,
+          sceneNo: 'ceshi1',
+          orgCode: '1',
+          videoRate: 25
+        }
+        handleVideoLivenessCertification(params).then(response => {
+          console.log('视频活体认证结果:', response);
+        })
         // 将新视频添加到列表开头
         this.videoClips.unshift({
           id: Date.now(),
@@ -653,17 +664,30 @@ export default {
       if (this.consoleLogs.length > this.maxLogCount) {
         this.consoleLogs.shift();
       }
-    }
+    },
   },
   /**
    * 组件挂载后初始化应用
    */
   async mounted() {
     // 立即获取首次token
-    this.getToken().then(response => {
-      console.log('response')
-      console.log(response)
-      http('/video/certification/query/scene', {})
+    this.getToken().then(() => {
+      let params = {
+        tradingFlowNO: 'TR' + Date.now(),
+        channel: "1",
+        sceneNo: 'ceshi1',
+        orgCode: '1'
+      }
+      // 初始化视频活体
+      initializeVideoLiveness(params).then(response => {
+        console.log('response')
+        console.log(response)
+        // 更新视频活体会话ID
+        this.$store.commit('updateSessionId', response.sessionId);
+        // 更新视频活体公钥
+        this.$store.commit('updatePublicKey', response.publicKey);
+      })
+
     }).catch(error => {
       console.log('error')
       console.log(error)

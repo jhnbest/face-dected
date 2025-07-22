@@ -4,59 +4,51 @@
  * @param {Function} updateMessage 更新消息的回调函数
  * @returns {Promise<Object>} 初始化结果
  */
- export async function initCamera(updateStatus, updateMessage) {
-  try {
-    updateMessage("正在初始化摄像头...");
-    updateStatus("加载中");
+//  export async function initCamera(updateStatus, updateMessage) {
+//   try {
+//     updateMessage("正在初始化摄像头...");
+//     updateStatus("加载中");
 
-    // 检查浏览器是否支持媒体设备
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("您的浏览器不支持摄像头访问");
-    }
+//     // 检查浏览器是否支持媒体设备
+//     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+//       throw new Error("您的浏览器不支持摄像头访问");
+//     }
 
-    // // 获取摄像头权限
-    // const stream = await navigator.mediaDevices.getUserMedia({ 
-    //   video: {
-    //     facingMode: 'user',
-    //     width: { ideal: 1280 },
-    //     height: { ideal: 720 }
-    //   }
-    // });
-    // 获取摄像头权限
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'user',
-        width: 640,
-        height: 480,
-        frameRate: {
-          ideal: 25,
-        }
-      }
-    });
+//     // 获取摄像头权限
+//     const stream = await navigator.mediaDevices.getUserMedia({
+//       video: {
+//         facingMode: 'user',
+//         width: 480,
+//         height: 360,
+//         frameRate: {
+//           ideal: 15,
+//         }
+//       }
+//     });
 
-    const videoElement = document.getElementById('video');
-    if (videoElement) {
-      videoElement.srcObject = stream;
-    }
+//     const videoElement = document.getElementById('video');
+//     if (videoElement) {
+//       videoElement.srcObject = stream;
+//     }
 
-    updateStatus("已连接");
-    updateMessage("摄像头初始化成功");
+//     updateStatus("已连接");
+//     updateMessage("摄像头初始化成功");
 
-    return {
-      success: true,
-      stream
-    };
-  } catch (err) {
-    console.error("摄像头访问失败:", err);
-    updateStatus(`错误: ${err.message}`);
-    updateMessage(`无法访问摄像头: ${err.message}`);
+//     return {
+//       success: true,
+//       stream
+//     };
+//   } catch (err) {
+//     console.error("摄像头访问失败:", err);
+//     updateStatus(`错误: ${err.message}`);
+//     updateMessage(`无法访问摄像头: ${err.message}`);
     
-    return {
-      success: false,
-      error: err
-    };
-  }
-}
+//     return {
+//       success: false,
+//       error: err
+//     };
+//   }
+// }
 
 import {drawResults} from './shared/util';
 
@@ -65,6 +57,8 @@ export class Camera {
     this.video = document.getElementById('video')
     this.canvas = document.getElementById('output')
     this.ctx = this.canvas.getContext('2d')
+    this.canvas.style.willChange = 'transform'
+    this.canvas.style.transform = 'translateZ(0)'
   }
 
   /**
@@ -85,7 +79,7 @@ export class Camera {
       // mobile devices accept the default size.
       width: { ideal: 640 },
       height: { ideal: 480 },
-      frameRate: { ideal: 25, max: 25 } // 保持25fps帧率
+      frameRate: { ideal: 15, max: 15 } // 保持15fps帧率
     };
 
     const stream = await navigator.mediaDevices.getUserMedia({

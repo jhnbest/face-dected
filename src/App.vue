@@ -20,8 +20,14 @@
     </button>
 
     <!-- 通知系统：用于显示操作结果提示 -->
-    <transition name="notification">
+    <!-- <transition name="notification">
       <div v-if="showNotificationFlag" class="notification" @click="showNotification = false">
+        {{ notificationMessage }}
+      </div>
+    </transition> -->
+    <!-- 通知系统：用于显示操作结果提示 -->
+    <transition name="notification">
+      <div v-if="showNotificationFlag" :class="['notification', notificationPosition]" @click="showNotificationFlag = false">
         {{ notificationMessage }}
       </div>
     </transition>
@@ -96,8 +102,10 @@ import axios from 'axios'
 import { createDetector, detectFacesV2 } from './utils/detectionV2'
 import {STATE} from './utils/shared/params'
 import {Camera} from './utils/camera'
-import {initializeVideoLiveness, handleVideoLivenessCertification} from './utils/livenessDetection'
-
+import {initializeVideoLiveness, 
+        handleVideoLivenessCertification, 
+        getBestFaceImage,
+        faceCompare1N} from './utils/livenessDetection'
 
 export default {
   components: {
@@ -136,12 +144,10 @@ export default {
       ],
       camera: null,                 // 摄像头实例
       rafId: null,                  // requestAnimationFrame ID
-      lastTime: 0,                  // 上一次时间戳
       videoClips: [],               // 录制的视频片段列表
       mediaRecorder: null,          // 媒体录制器实例
       recordedChunks: [],           // 录制的媒体数据块
       maxClips: 6,                  // 最大视频片段数量
-      isConvertBase64Finish: true,  // Base64转换是否完成
       timestamp1: null,             // 调试用时间戳1
       timestamp2: null,             // 调试用时间戳2
       timestamp3: null,             // 调试用时间戳3
@@ -153,7 +159,12 @@ export default {
       consoleExpanded: false, // 控制日志面板展开/折叠
       tokenRefreshTimer: null,// token刷新定时器
       retryCount: 0,          // 获取token失败重试次数
-      maxLogCount: 50         // 最大日志数量
+      maxLogCount: 50,         // 最大日志数量
+      hasShownBlinkPrompt: false, // 眨眼提示状态标记
+      blinkPromptTimer: null, // 提示冷却定时器
+      showFaceMatchResult: false,
+      faceMatchResultText: '',
+      faceMatchTimer: null
     }
   },
   computed: {
@@ -163,14 +174,62 @@ export default {
     }
   },
   methods: {
+        /**
+     * 初始化应用
+     * 依次检测摄像头、初始化摄像头、加载模型
+     */
+    async initializeApp() {
+      try {
+        this.updateProcessingInfo('正在检测可用摄像头...');
+        const hasCameras = await this.getAvailableCameras();
+        if (!hasCameras) {
+          this.showNotification('未检测到摄像头设备');
+          this.updateProcessingInfo('未检测到摄像头设备');
+          this.isLoading = false;
+          return;
+        }
+
+        this.updateProcessingInfo('正在初始化摄像头...');
+        STATE.camera.deviceId = this.selectedCameraId;
+        this.camera = await Camera.setupCamera(STATE.camera);
+
+        if (this.camera !== null) {
+          this.cameraActive = true;
+          this.updateCameraStatus('已连接');
+        }
+
+        // 加载模型v2
+        this.updateProcessingInfo('正在加载检测模型...');
+        this.modelObj = await createDetector(
+          status => this.updateModelStatus(status),
+          message => {
+            this.loadingMessage = message;
+            this.updateProcessingInfo(message);
+          }
+        )
+
+        this.isLoading = false;
+
+        if (this.camera !== null && this.modelObj !== null) {
+          this.showNotification('系统就绪！点击"开始自动抓拍"按钮');
+        }
+
+      } catch (error) {
+        console.error('初始化失败:', error);
+        this.showNotification('系统初始化失败，请刷新页面重试');
+        this.isLoading = false;
+      }
+    },
+
     /**
      * 显示通知消息
      * @param {string} message - 通知内容
      * @param {number} duration - 显示时长(毫秒)，默认3000ms
      */
-    showNotification(message, duration = 3000) {
+    showNotification(message, duration = 3000, position = 'bottom') {
       this.notificationMessage = message;
       this.showNotificationFlag = true;
+      this.notificationPosition = position;
       setTimeout(() => {
         this.showNotificationFlag = false;
       }, duration);
@@ -206,8 +265,8 @@ export default {
      * @param {number} timestamp - 时间戳
      */
     async runAutoDetection(timestamp) {
-      // 控制帧率：确保至少40ms才处理一帧（25fps）
-      if (!this.lastFrameTime || timestamp - this.lastFrameTime >= 40) {
+      // 控制帧率：确保至少60ms才处理一帧（16fps）
+      if (!this.lastFrameTime || timestamp - this.lastFrameTime >= 60) {
         this.lastFrameTime = timestamp;
 
         let faces = null
@@ -220,36 +279,248 @@ export default {
         // 绘制摄像头画面到画布
         this.camera.drawCtx();
 
-        // 如果检测到人脸，绘制人脸框
+       // 如果检测到人脸时绘制人脸框并提示眨眼
         if (faces && faces.length > 0) {
           this.camera.drawResults(faces, true, true);
-        }
+           
+          // 控制提示频率（3秒内只提示一次）
+          if (!this.hasShownBlinkPrompt) {
+            // 显示眨眼提示
+            this.showNotification('请眨眼以完成活体检测');
+            this.hasShownBlinkPrompt = true;
+            
+            // 设置3秒冷却期
+            this.blinkPromptTimer = setTimeout(() => {
+              this.hasShownBlinkPrompt = false;
+            }, 3000);
+          }
 
-        // 计算并更新帧率
-        const delta = timestamp - this.lastTime;
-        this.fps = Math.round(1000 / delta);
-        this.lastTime = timestamp;
-
-        // 如果检测到人脸，进行距离判断和抓拍
-        if (faces && faces.length > 0) {
           const face = faces[0].box;
           const { distancePercentage } = this.calculateFaceDistance(face);
 
-          // 如果人脸距离足够近（>80%），且距离上次抓拍超过2秒，则开始录制视频
-          if (distancePercentage > 80) {
-            if (!this.lastCaptureTime || timestamp - this.lastCaptureTime >= 5000) {
-              this.lastCaptureTime = timestamp
-              // this.captureFace(face);
-              this.startRecording()
-            }
+          // 如果人脸距离足够近（>60%），且距离上次抓拍超过5秒，则开始录制视频
+          if (distancePercentage > 60 && (!this.lastCaptureTime ||
+              timestamp - this.lastCaptureTime >= 2000)) {
+            this.lastCaptureTime = timestamp
+            // this.captureFace(face);
+            this.startRecording().then(() => {});
           }
+        } else {
+          // 未检测到人脸时重置提示状态
+          if (this.blinkPromptTimer) {
+            clearTimeout(this.blinkPromptTimer);
+            this.blinkPromptTimer = null;
+          }
+          this.hasShownBlinkPrompt = false;
+        }
+
+        // 计算并更新帧率
+        this.frameCount++;
+        if (timestamp - this.lastDetectionTime >= 1000) {
+          this.fps = this.frameCount;
+          this.frameCount = 0;
+          this.lastDetectionTime = timestamp;
         }
       }
 
-      // 继续请求下一帧
-      this.rafId = window.requestAnimationFrame(this.runAutoDetection) ||
+      // 循环控制：仅在摄像头激活时继续请求下一帧
+      if (this.cameraActive) {
+        this.rafId = window.requestAnimationFrame(this.runAutoDetection) ||
           window.webkitRequestAnimationFrame(this.runAutoDetection) ||
           window.mozRequestAnimationFrame(this.runAutoDetection)
+      }
+    },
+
+    /**
+     * 开始录制视频
+     * 当检测到人脸时触发，录制3秒视频
+     */
+    async startRecording() {
+      // 如果上一次录制未完成，则不开始新的录制
+      return new Promise((resolve, reject) => {
+        // console.log("----------------------startRecording!----------------")
+        this.recordedChunks = [];
+        // 使用 Promise 包装 requestIdleCallback 确保异步流程可控
+        new Promise((idleResolve) => {
+          if ('requestIdleCallback' in window) {
+            requestIdleCallback(() => idleResolve(), { timeout: 500 });
+          } else {
+            // 降级处理：直接执行
+            setTimeout(() => idleResolve(), 0);
+          }
+        }).then(() => {
+          const stream = document.getElementById('video').srcObject;
+          if (!stream) {
+            resolve(false);
+            return;
+          }
+
+          // 定义格式优先级列表（安卓兼容性从高到低）
+          const supportedMimeTypes = [
+            // 'video/mp4;codecs=avc1.424028',  // MP4/H.264 (最广泛支持)
+            'video/mp4',                     // 基础MP4格式
+            'video/3gpp;codecs=h264',        // 3GP/H.264 (老旧设备兼容)
+            'video/webm;codecs=vp8',         // WebM/VP8 (备选)
+            'video/webm'                     // 基础WebM
+          ];
+
+          // 检测浏览器支持的格式
+          let selectedMimeType = null;
+          for (const mimeType of supportedMimeTypes) {
+            if (MediaRecorder.isTypeSupported(mimeType)) {
+              selectedMimeType = mimeType;
+              break;
+            }
+          }
+
+          if (!selectedMimeType) {
+            console.error('当前浏览器不支持任何视频录制格式');
+            this.showNotification('录制功能不受支持，请使用Chrome浏览器');
+            resolve(false);
+            return;
+          }
+
+          // 创建媒体录制器实例
+          this.mediaRecorder = new MediaRecorder(stream, {
+            mimeType: selectedMimeType,
+            videoBitsPerSecond: 300000,
+            framerate: 15
+          });
+          // 开始录制
+          this.mediaRecorder.start();
+          // 3秒后停止录制
+          setTimeout(() => this.mediaRecorder.stop(), 5000);
+          
+          this.mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) this.recordedChunks.push(e.data);
+          };
+          this.mediaRecorder.onstop = () => {
+            this.convertToBase64();
+            resolve(true)
+          }
+          this.mediaRecorder.onerror = (error) => {
+            console.error('录制错误:', error);
+            this.recordedChunks = [];
+            reject(error);
+          };
+        })
+      })
+
+      // 更改前
+      // const stream = document.getElementById('video').srcObject;
+      // // 创建媒体录制器实例
+      // this.mediaRecorder = new MediaRecorder(stream, {
+      //   mimeType: 'video/webm;codecs=h264',
+      //   videoBitsPerSecond: 500000, // 500kpbs比特率
+      //   framerate: 15 // 录制帧率
+      // });
+
+      // // 数据可用时的回调
+      // this.mediaRecorder.ondataavailable = e => {
+      //   console.log("----------------------ondataavailable----------------")
+      //   this.timestamp2 = Date.now()
+      //   if (e.data.size > 0) this.recordedChunks.push(e.data);
+      //   this.convertToBase64();
+      // };
+
+      // // 开始录制
+      // this.mediaRecorder.start();
+
+      // // 3秒后停止录制
+      // setTimeout(() => {
+      //   this.mediaRecorder.stop();
+      // }, 5000);
+
+    },
+
+    /**
+     * 将录制的视频转换为Base64格式
+     * 并添加到视频片段列表中
+     */
+    async convertToBase64() {
+      // 创建Blob对象
+      const blob = new Blob(this.recordedChunks, { type: 'video/mp4' });
+      if (blob.size === 0) return
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      // 转换完成回调
+      reader.onloadend = () => {
+        // 请求活体检测结果
+        let livenessParams = {
+          sessionId: this.$store.state.sessionId,
+          tradingFlowNO: 'TF' + Date.now(),
+          channel: '1',
+          tradingCode: '1',
+          video: reader.result.replace(/^data:[^;]+;base64,/, ''),
+          sceneNo: 'ceshi1',
+          orgCode: '1',
+          videoRate: 25
+        }
+        // 进行活体检测
+        handleVideoLivenessCertification(livenessParams).then(livenessResponse => {
+          if (livenessResponse.code === "00008001") {
+            console.log('活体检测失败：')
+            console.log(livenessResponse)
+          } else {
+            console.log('活体检测成功：')
+            console.log(livenessResponse)
+            // 将新视频添加到列表开头
+            this.videoClips.unshift({
+              id: Date.now(),
+              src: reader.result,
+              playing: false
+            });
+            // 如果超过最大数量，移除最旧的视频
+            if (this.videoClips.length > this.maxClips) {
+              this.videoClips.pop();
+            }
+
+            // 获取最佳人脸照
+            getBestFaceImage({
+              tradingFlowNO: livenessParams.tradingFlowNO
+            }).then(getBestFaceImageResponse => {
+              if (getBestFaceImageResponse.code === "00000000" && 
+                  getBestFaceImageResponse.data.isAlive === "1") {
+            
+                let faceCompareParams = {
+                  buscode: 'personCompare',
+                  legalCode: '6666',
+                  channel: '0300',
+                  tradingCode: '0600',
+                  tradingFlowNO: livenessParams.tradingFlowNO,
+                  fileDataone: getBestFaceImageResponse.data.image,
+                  libName: '测试库',
+                  libClassify: 1,
+                  top: this.$store.state.topN
+                }
+                // 进行1:N识别
+                faceCompare1N(faceCompareParams).then(faceResponse => {
+                  if (faceResponse.code === "00000000") {
+                    console.log('人脸比对成功：')
+                    console.log(faceResponse)
+                    this.showNotification(`${faceResponse.data.resultList[0].ctfname}签到成功`, 5000, 'top');
+                  } else {
+                    console.log('人脸比对失败：')
+                    console.log(faceResponse)
+                  }
+                }).catch(error => {
+                  console.log('1:N识别失败')
+                  console.log(error)
+                })
+              } else {
+                console.log('获取最佳人脸照失败：')
+                console.log(getBestFaceImageResponse)
+              }
+            }).catch(error => {
+              console.log('获取最佳人脸照')
+              console.log(error)
+            })
+          }
+        }).catch(error => {
+          console.log('error')
+          console.log(error)
+        })
+      };
     },
 
     /**
@@ -361,7 +632,7 @@ export default {
 
       if (!this.isAutoCaptureEnabled) {
         this.isAutoCaptureEnabled = true;
-        this.runAutoDetection()
+        this.rafId = window.requestAnimationFrame(this.runAutoDetection)
         this.updateProcessingInfo("自动抓拍模式已启动...")
       } else {
         this.isAutoCaptureEnabled = false;
@@ -381,6 +652,7 @@ export default {
      */
     clearCaptures() {
       this.captures = [];
+      this.videoClips = [];
       this.showNotification('已清空所有照片');
     },
 
@@ -392,91 +664,6 @@ export default {
         const randomIndex = Math.floor(Math.random() * this.statusMessages.length);
         this.updateProcessingInfo(this.statusMessages[randomIndex]);
       }
-    },
-
-    /**
-     * 初始化应用
-     * 依次检测摄像头、初始化摄像头、加载模型
-     */
-    async initializeApp() {
-      try {
-        this.updateProcessingInfo('正在检测可用摄像头...');
-        const hasCameras = await this.getAvailableCameras();
-        if (!hasCameras) {
-          this.showNotification('未检测到摄像头设备');
-          this.updateProcessingInfo('未检测到摄像头设备');
-          this.isLoading = false;
-          return;
-        }
-
-        this.updateProcessingInfo('正在初始化摄像头...');
-        STATE.camera.deviceId = this.selectedCameraId;
-        this.camera = await Camera.setupCamera(STATE.camera);
-
-        if (this.camera !== null) {
-          this.cameraActive = true;
-          this.updateCameraStatus('已连接');
-        }
-
-        // 加载模型v2
-        this.updateProcessingInfo('正在加载检测模型...');
-        this.modelObj = await createDetector(
-          status => this.updateModelStatus(status),
-          message => {
-            this.loadingMessage = message;
-            this.updateProcessingInfo(message);
-          }
-        )
-
-        this.isLoading = false;
-
-        if (this.camera !== null && this.modelObj !== null) {
-          this.showNotification('系统就绪！点击"开始自动抓拍"按钮');
-        }
-
-      } catch (error) {
-        console.error('初始化失败:', error);
-        this.showNotification('系统初始化失败，请刷新页面重试');
-        this.isLoading = false;
-      }
-    },
-
-    /**
-     * 开始录制视频
-     * 当检测到人脸时触发，录制3秒视频
-     */
-    startRecording() {
-      // 如果Base64转换未完成，则不开始新的录制
-      if (!this.isConvertBase64Finish) return
-      this.isConvertBase64Finish = false
-      console.log("----------------------startRecording!----------------")
-      this.timestamp1 = Date.now()
-      this.recordedChunks = [];
-      const stream = document.getElementById('video').srcObject;
-      // 创建媒体录制器实例
-      this.mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=h264',
-        videoBitsPerSecond: 1000000 // 2.5Mbps比特率
-      });
-
-      // 数据可用时的回调
-      this.mediaRecorder.ondataavailable = e => {
-        console.log("----------------------ondataavailable----------------")
-        this.timestamp2 = Date.now()
-        console.log('录制2s耗时')
-        console.log(this.timestamp2 - this.timestamp1)
-        if (e.data.size > 0) this.recordedChunks.push(e.data);
-        this.convertToBase64();
-      };
-
-      // 开始录制
-      this.mediaRecorder.start();
-
-      // 3秒后停止录制
-      setTimeout(() => {
-        this.mediaRecorder.stop();
-      }, 3000);
-
     },
 
     /**
@@ -585,51 +772,6 @@ export default {
       }
     },
 
-    /**
-     * 将录制的视频转换为Base64格式
-     * 并添加到视频片段列表中
-     */
-    async convertToBase64() {
-      // 创建Blob对象
-      const blob = new Blob(this.recordedChunks, { type: 'video/mp4' });
-      if (blob.size === 0) return
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      // 转换完成回调
-      reader.onloadend = () => {
-        let params = {
-          sessionId: this.$store.state.sessionId,
-          tradingFlowNO: '1',
-          channel: '1',
-          tradingCode: '1',
-          video: reader.result,
-          sceneNo: 'ceshi1',
-          orgCode: '1',
-          videoRate: 25
-        }
-        handleVideoLivenessCertification(params).then(response => {
-          console.log('视频活体认证结果:', response);
-        })
-        // 将新视频添加到列表开头
-        this.videoClips.unshift({
-          id: Date.now(),
-          src: reader.result,
-          playing: false
-        });
-        // 如果超过最大数量，移除最旧的视频
-        if (this.videoClips.length > this.maxClips) {
-          this.videoClips.pop();
-        }
-        this.isConvertBase64Finish = true
-        this.timestamp3 = Date.now()
-        console.log('转换2s耗时')
-        console.log(this.timestamp3 - this.timestamp2)
-        console.log('this.videoClips')
-        console.log(this.videoClips)
-        console.log("----------------------convertToBase64 done!----------------")
-      };
-    },
-
     rotateCanvas() {
       // 调用子组件的rotateCanvas方法
       if (this.$refs.cameraPanel) {
@@ -671,7 +813,7 @@ export default {
    */
   async mounted() {
     // 立即获取首次token
-    this.getToken().then(() => {
+    this.getToken().then((response) => {
       let params = {
         tradingFlowNO: 'TR' + Date.now(),
         channel: "1",
@@ -680,12 +822,12 @@ export default {
       }
       // 初始化视频活体
       initializeVideoLiveness(params).then(response => {
-        console.log('response')
-        console.log(response)
+        // console.log('初始化视频活体返回：')
+        // console.log(response)
         // 更新视频活体会话ID
-        this.$store.commit('updateSessionId', response.sessionId);
+        this.$store.commit('updateSessionId', response.data.sessionId);
         // 更新视频活体公钥
-        this.$store.commit('updatePublicKey', response.publicKey);
+        this.$store.commit('updatePublicKey', response.data.publicKey);
       })
 
     }).catch(error => {

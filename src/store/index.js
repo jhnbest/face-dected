@@ -11,6 +11,7 @@ export default new Vuex.Store({
     tokenType: null, // 视频活体token类型
     sessionId: null, // 视频活体会话ID
     publicKey: null, // 视频活体公钥
+    topN: 3, // 1:N top N数量
   },
   getters: {
   },

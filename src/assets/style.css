@@ -297,6 +297,12 @@ h1 {
   font-size: 16px;
 }
 
+/* 新增顶部弹窗样式 */
+.notification.top {
+  bottom: auto;
+  top: 20px;
+}
+
 .notification-enter-active, .notification-leave-active {
   transition: opacity 0.5s ease;
 }

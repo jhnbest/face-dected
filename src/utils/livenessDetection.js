@@ -129,3 +129,71 @@ export function handleVideoLivenessCertification(params) {
     requestParams
   );
 }
+
+/**
+ * 人脸比对(1:N)接口
+ * @param {Object} params - 请求参数
+ * @param {string} params.buscode - 接口引擎代码
+ * @param {string} params.legalCode - 机构代码
+ * @param {string} params.channel - 渠道
+ * @param {string} params.tradingCode - 交易代码
+ * @param {string} params.tradingFlowNO - 业务流水号
+ * @param {string} params.fileDataone - 生物文件(Base64)
+ * @param {string} params.libId - 生物库ID
+ * @param {number} params.libClassify - 识别类型(1-人脸)
+ * @param {number} params.top - 返回结果数量
+ * @returns {Promise}
+ */
+export function faceCompare1N(params) {
+  // 构造请求参数（过滤undefined值并设置默认值）
+  const requestParams = {
+    buscode: params.buscode,
+    legalCode: params.legalCode,
+    channel: params.channel,
+    tradingCode: params.tradingCode,
+    tradingFlowNO: params.tradingFlowNO,
+    fileDataone: params.fileDataone,
+    libName: params.libName,
+    libClassify: params.libClassify || 1, // 默认人脸类型
+    top: params.top || 10 // 默认返回前10条结果
+  };
+
+  // 过滤undefined值
+  Object.keys(requestParams).forEach(key => {
+    if (requestParams[key] === undefined) {
+      delete requestParams[key];
+    }
+  });
+
+  // 调用POST接口
+  return http(
+    '/recog/handle',
+    requestParams
+  );
+}
+
+/**
+ * 获取最佳人脸照接口
+ * @param {Object} params - 请求参数
+ * @param {string} params.tradingFlowNO - 交易流水号（32位，必需）
+ * @returns {Promise} - 返回接口响应Promise
+ */
+export function getBestFaceImage(params) {
+  // 验证必需参数
+  const requiredParams = ['tradingFlowNO'];
+  const missingParams = requiredParams.filter(param => !params[param]);
+  if (missingParams.length > 0) {
+    return Promise.reject(new Error(`缺少必需参数: ${missingParams.join(', ')}`));
+  }
+
+  // 构造请求参数
+  const requestParams = {
+    tradingFlowNO: params.tradingFlowNO
+  };
+
+  // 调用POST接口
+  return http(
+    '/video/certification/pic',
+    requestParams
+  );
+}

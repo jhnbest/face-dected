@@ -17,9 +17,9 @@
       <button @click="$emit('toggle-auto-capture')" :class="autoCaptureBtnClass">
         <i :class="startBtnIcon"></i> {{ autoCaptureBtnText }}
       </button>
-      <button @click="$emit('capture-face')" class="btn btn-success">
+      <!-- <button @click="$emit('capture-face')" class="btn btn-success">
         <i class="fas fa-camera"></i> 手动抓拍
-      </button>
+      </button> -->
       <button @click="$emit('clear-captures')" class="btn btn-warning">
         <i class="fas fa-trash-alt"></i> 清空照片
       </button>
